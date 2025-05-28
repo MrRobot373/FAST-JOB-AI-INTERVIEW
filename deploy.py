@@ -36,8 +36,14 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 celery_app = Celery("main", broker=CELERY_BROKER_URL)
 VOICE = "en-CA-LiamNeural"
 BASE_DIR = Path(__file__).resolve().parent
-TEMP_DIR = BASE_DIR / "temp"
-TEMP_DIR.mkdir(exist_ok=True)
+
+
+from google.cloud import storage
+from datetime import timedelta
+
+# Initialize GCS client
+storage_client = storage.Client()
+bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket name
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
 def generate_tts_task(self, text: str, session_id: str):
@@ -45,23 +51,32 @@ def generate_tts_task(self, text: str, session_id: str):
         t = t.replace("“", '"').replace("”", '"')
         t = t.replace("‘", "'").replace("’", "'")
         return re.sub(r'\s+', ' ', t).strip()
+
     cleaned = clean_tts_text(text)
-    tmp_path = TEMP_DIR / f"response_{session_id}.mp3.tmp"
-    final_path = TEMP_DIR / f"response_{session_id}.mp3"
-    if final_path.exists():
-        final_path.unlink()
-        logger.info(f"[TTS] removed old → {final_path}")
+    tmp_path = f"/tmp/response_{session_id}.mp3.tmp"  # using system temp dir
+
+
     async def run_tts():
         await edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path))
-        tmp_path.replace(final_path)
-        logger.info(f"[TTS] wrote & replaced → {final_path}")
+
     try:
         asyncio.run(run_tts())
+
+        # Upload to GCS
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
+        blob.upload_from_filename(str(tmp_path))
+        tmp_path.unlink()  # delete temp file
+
+        logger.info(f"[TTS] Uploaded to GCS: {blob.name}")
+
     except Exception as e:
         logger.error(f"[TTS] error: {e}", exc_info=True)
-        try: self.retry(exc=e)
+        try:
+            self.retry(exc=e)
         except self.MaxRetriesExceededError:
             logger.error(f"[TTS] max retries for {session_id}")
+
 
 # ——— FastAPI setup ———
 app = FastAPI(title="AI Interview Bot")
@@ -198,12 +213,24 @@ async def talk(
         logger.error(f"Talk error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error.")
 
+from datetime import timedelta
+
 @app.get("/get_audio/{session_id}")
 async def get_audio(session_id: str):
-    f = TEMP_DIR / f"response_{session_id}.mp3"
-    if f.exists():
-        return FileResponse(str(f), media_type="audio/mpeg", filename=f.name)
-    raise HTTPException(status_code=404, detail="Audio not ready.")
+    bucket = storage_client.bucket("ai-interview-audio")  # your bucket name
+    blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
+
+    if not blob.exists():
+        raise HTTPException(status_code=404, detail="Audio not ready.")
+
+    signed_url = blob.generate_signed_url(
+        version="v4",
+        expiration=timedelta(hours=1),
+        method="GET"
+    )
+
+    return JSONResponse({"audio_url": signed_url})
+
 
 @app.post("/clear_chat/{user_id}")
 async def clear_chat(user_id: str):
