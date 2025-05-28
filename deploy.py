@@ -53,8 +53,11 @@ def generate_tts_task(self, text: str, session_id: str):
         return re.sub(r'\s+', ' ', t).strip()
 
     cleaned = clean_tts_text(text)
-    tmp_path = f"/tmp/response_{session_id}.mp3.tmp"  # using system temp dir
+    tmp_path = Path(f"/tmp/response_{session_id}.mp3.tmp") # using system temp dir
 
+    print(f"[TTS] Starting for session: {session_id}")
+    print(f"[TTS] Cleaned Text: {cleaned}")
+    print(f"[TTS] Temp Path: {tmp_path}")
 
     async def run_tts():
         await edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path))
@@ -69,6 +72,8 @@ def generate_tts_task(self, text: str, session_id: str):
         tmp_path.unlink()  # delete temp file
 
         logger.info(f"[TTS] Uploaded to GCS: {blob.name}")
+        print(f"[TTS] Uploaded to GCS → {blob.name}")
+        print(f"[TTS] Public URL (if public): https://storage.googleapis.com/{bucket_name}/{blob.name}")
 
     except Exception as e:
         logger.error(f"[TTS] error: {e}", exc_info=True)
@@ -217,7 +222,7 @@ from datetime import timedelta
 
 @app.get("/get_audio/{session_id}")
 async def get_audio(session_id: str):
-    bucket = storage_client.bucket("ai-interview-audio")  # your bucket name
+    bucket = storage_client.bucket(bucket_name)  # your bucket name
     blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
 
     if not blob.exists():
