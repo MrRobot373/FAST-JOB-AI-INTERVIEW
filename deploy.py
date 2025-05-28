@@ -1,4 +1,5 @@
 import os
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcs-key.json"
 import uuid
 import json
 import logging
