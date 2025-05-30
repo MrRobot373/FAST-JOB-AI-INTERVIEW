@@ -223,10 +223,13 @@ from datetime import timedelta
 
 @app.get("/get_audio/{session_id}")
 async def get_audio(session_id: str):
-    bucket = storage_client.bucket(bucket_name)  # your bucket name
+    bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
 
-    if not blob.exists():
+    try:
+        blob.reload()  # More reliable than .exists()
+    except Exception as e:
+        logger.warning(f"[GCS] Audio not ready or access issue for session {session_id}: {e}")
         raise HTTPException(status_code=404, detail="Audio not ready.")
 
     signed_url = blob.generate_signed_url(
@@ -235,8 +238,8 @@ async def get_audio(session_id: str):
         method="GET"
     )
 
+    logger.info(f"[GCS] Signed URL generated for session {session_id}")
     return JSONResponse({"audio_url": signed_url})
-
 
 @app.post("/clear_chat/{user_id}")
 async def clear_chat(user_id: str):
