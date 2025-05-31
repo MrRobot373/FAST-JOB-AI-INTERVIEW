@@ -19,6 +19,11 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from google.api_core.exceptions import GoogleAPIError
+from google.cloud import firestore
+
+# Initialize Firestore client
+db = firestore.Client()
+
 from pathlib import Path
 
 # ——— env & logging ———
@@ -118,8 +123,24 @@ Behavior rules:
 chat_sessions = {}
 
 def get_or_create_session(user_id, firstname, skills, role, experience):
-    session = chat_sessions.get(user_id)
-    if not session:
+    # Reference the Firestore document for the user's session
+    doc_ref = db.collection("sessions").document(user_id)
+    doc = doc_ref.get()
+
+    if doc.exists:
+        session = doc.to_dict()
+        # Update session details if they've changed
+        session.update({
+            "firstname": firstname,
+            "skills": skills,
+            "role": role,
+            "experience": experience
+        })
+        # Update session data back to Firestore
+        doc_ref.set(session)
+        logger.info(f"Updated Firestore session for user {user_id}")
+    else:
+        # Create a new session document
         session_id = str(uuid.uuid4())
         session = {
             "id": session_id,
@@ -128,20 +149,13 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
             "skills": skills,
             "role": role,
             "experience": experience,
-            "history": "[]"
+            "history": []  # Store history as a list of objects (not as a JSON string)
         }
-        chat_sessions[user_id] = session
-        logger.info(f"Created session {session_id} for user {user_id}")
-    else:
-        # Update session details if they've changed
-        session.update({
-            "firstname": firstname,
-            "skills": skills,
-            "role": role,
-            "experience": experience
-        })
-        logger.info(f"Updated session {session['id']} for user {user_id}")
+        doc_ref.set(session)
+        logger.info(f"Created Firestore session {session_id} for user {user_id}")
+
     return session
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -158,7 +172,7 @@ async def talk(
 ):
     try:
         session = get_or_create_session(user_id, firstname, skills, role, experience)
-        chat_history = json.loads(session.get("history", "[]"))
+        chat_history = session.get("history", [])
 
         # build contents for Gemini
         contents = [
@@ -194,13 +208,16 @@ async def talk(
 
         answer = response_text.strip() or "Sorry, I couldn't generate a response. Please try again."
 
-        # save history (in-memory for this version)
+       # Update chat history
         chat_history.extend([
             {"role": "user", "text": message},
             {"role": "assistant", "text": answer}
         ])
-        session["history"] = json.dumps(chat_history)
-        chat_sessions[user_id] = session # Update the in-memory session
+        session["history"] = chat_history
+        
+        # Save the updated session back to Firestore
+        doc_ref = db.collection("sessions").document(user_id)
+        doc_ref.set(session)
 
         # dispatch TTS
         generate_tts_task.delay(answer, session["id"])
@@ -243,26 +260,39 @@ async def get_audio(session_id: str):
 
 @app.post("/clear_chat/{user_id}")
 async def clear_chat(user_id: str):
-    session = chat_sessions.get(user_id)
-    if session:
-        session["history"] = "[]"
-        chat_sessions[user_id] = session # Update the in-memory session
+    # Fetch session from Firestore
+    doc_ref = db.collection("sessions").document(user_id)
+    doc = doc_ref.get()
+    
+    if doc.exists:
+        session = doc.to_dict()
+        session["history"] = []  # Clear the chat history
+        doc_ref.set(session)  # Save the cleared history back to Firestore
         return {"message": "Chat history cleared"}
-    raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 @app.post("/final_report")
 async def final_report(user_id: str = Form(...)):
-    session = chat_sessions.get(user_id)
-    if not session:
+    # Fetch the session from Firestore
+    doc_ref = db.collection("sessions").document(user_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Session not found")
+    
+    session = doc.to_dict()
+    chat_history = session.get("history", [])
 
-    chat_history = json.loads(session.get("history", "[]"))
+    # Create prompt for the report generation
     prompt = (
-        f"Generate a final interview report in 300 words for {session['firstname']} "
+        f"Generate a final interview report for {session['firstname']} "
         f"applying for {session['role']} with {session['experience']} years experience "
         f"and skills in {session['skills']}.\n\n"
-        "Include: Overall Assessment, Strengths, Areas for Improvement, Recommendation.\n\n"
+        "Include: Overall Assessment, Strengths, Areas for Improvement, and Recommendation.\n\n"
     )
+    
+    # Add chat history to the prompt
     for e in chat_history:
         prompt += f"{e['role'].capitalize()}: {e['text']}\n"
 
@@ -276,5 +306,6 @@ async def final_report(user_id: str = Form(...)):
         contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
         config=cfg
     )
+    
     report = resp.text.strip() or "Could not generate report."
     return JSONResponse({"report": report})
