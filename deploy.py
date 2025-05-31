@@ -137,7 +137,7 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
             "experience": experience
         })
         # Update session data back to Firestore
-        doc_ref.set(session)
+        doc_ref.set(session, merge=True)
         logger.info(f"Updated Firestore session for user {user_id}")
     else:
         # Create a new session document
