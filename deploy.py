@@ -53,7 +53,7 @@ storage_client = storage.Client()
 bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket name
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
-def generate_tts_task(self, text: str, user_id: str, session_id: str):
+def _generate_tts_task(self, text: str, user_id: str, session_id: str):
     def clean_tts_text(t: str) -> str:
         t = t.replace("“", '"').replace("”", '"')
         t = t.replace("‘", "'").replace("’", "'")
@@ -78,6 +78,9 @@ def generate_tts_task(self, text: str, user_id: str, session_id: str):
             self.retry(exc=e)
         except self.MaxRetriesExceededError:
             logger.error(f"[TTS] max retries for {session_id}")
+
+# bind it as a task correctly
+generate_tts_task = celery_app.task(bind=True, max_retries=3, default_retry_delay=300)(_generate_tts_task)
 
 
 # ——— FastAPI setup ———
