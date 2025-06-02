@@ -235,26 +235,25 @@ from datetime import timedelta
 
 @app.get("/get_audio/{session_id}")
 async def get_audio(session_id: str):
-    # Check Firestore for audio_ready status
-    doc_ref = db.collection("sessions").document(session_id)
-    doc = doc_ref.get()
-    
-    if not doc.exists:
+    # Search session by session_id field (not document ID)
+    sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
+    session_doc = next(sessions, None)
+
+    if not session_doc:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_data = doc.to_dict()
+    session_data = session_doc.to_dict()
     if not session_data.get("audio_ready"):
         raise HTTPException(status_code=404, detail="Audio not ready yet")
 
-    # Generate signed URL for GCS file
     blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{session_id}.mp3")
     signed_url = blob.generate_signed_url(
         version="v4",
         expiration=timedelta(hours=1),
         method="GET"
     )
-
     return JSONResponse({"audio_url": signed_url})
+
 
 @app.post("/clear_chat/{user_id}")
 async def clear_chat(user_id: str):
