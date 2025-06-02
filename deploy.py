@@ -146,6 +146,7 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
             "history": [],
             "audio_ready": False # Store history as a list of objects (not as a JSON string)
         }
+        session["id"] = session_id  # 🔥 Ensure "id" field is written
         doc_ref.set(session)
         logger.info(f"Created Firestore session {session_id} for user {user_id}")
 
