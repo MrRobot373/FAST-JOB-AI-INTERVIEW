@@ -52,39 +52,24 @@ storage_client = storage.Client()
 bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket name
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
-def generate_tts_task(self, text: str, session_id: str):
+def generate_tts_task(self, text: str, user_id: str, session_id: str):
     def clean_tts_text(t: str) -> str:
         t = t.replace("“", '"').replace("”", '"')
         t = t.replace("‘", "'").replace("’", "'")
         return re.sub(r'\s+', ' ', t).strip()
 
     cleaned = clean_tts_text(text)
-    tmp_path = Path(f"/tmp/response_{session_id}.mp3.tmp") # using system temp dir
-
-    print(f"[TTS] Starting for session: {session_id}")
-    print(f"[TTS] Cleaned Text: {cleaned}")
-    print(f"[TTS] Temp Path: {tmp_path}")
-
-    async def run_tts():
-        await edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path))
+    tmp_path = Path(f"/tmp/response_{session_id}.mp3.tmp")
 
     try:
-        asyncio.run(run_tts())
-
-        # Upload to GCS
+        asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
         blob.upload_from_filename(str(tmp_path))
-        tmp_path.unlink()  # delete temp file
+        tmp_path.unlink()
 
-        # ✅ Mark audio ready
-        db.collection("sessions").document(session_id).update({"audio_ready": True})
-
-
+        db.collection("sessions").document(user_id).update({"audio_ready": True})
         logger.info(f"[TTS] Uploaded to GCS: {blob.name}")
-
-        print(f"[TTS] Uploaded to GCS → {blob.name}")
-        print(f"[TTS] Public URL (if public): https://storage.googleapis.com/{bucket_name}/{blob.name}")
 
     except Exception as e:
         logger.error(f"[TTS] error: {e}", exc_info=True)
