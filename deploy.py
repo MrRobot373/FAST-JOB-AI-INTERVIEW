@@ -69,15 +69,23 @@ def _generate_tts_task(self, text: str, user_id: str, session_id: str):
         blob.upload_from_filename(str(tmp_path))
         tmp_path.unlink()
 
-        db.collection("sessions").document(user_id).update({"audio_ready": True})
-        logger.info(f"[TTS] Uploaded to GCS: {blob.name}")
+        # ✅ Fix: update audio_ready by querying the session using session_id
+        sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
+        session_doc = next(sessions, None)
+
+        if session_doc:
+            doc_ref = db.collection("sessions").document(session_doc.id)
+            doc_ref.update({"audio_ready": True})
+            logger.info(f"[TTS] Uploaded to GCS and marked audio_ready for: {session_id}")
+        else:
+            logger.warning(f"[TTS] Session with id {session_id} not found in Firestore.")
 
     except Exception as e:
-        logger.error(f"[TTS] error: {e}", exc_info=True)
+        logger.error(f"[TTS] error for session {session_id}: {e}", exc_info=True)
         try:
             self.retry(exc=e)
         except self.MaxRetriesExceededError:
-            logger.error(f"[TTS] max retries for {session_id}")
+            logger.error(f"[TTS] Max retries exceeded for session {session_id}")
 
 # bind it as a task correctly
 generate_tts_task = celery_app.task(bind=True, max_retries=3, default_retry_delay=300)(_generate_tts_task)
