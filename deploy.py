@@ -77,7 +77,11 @@ def generate_tts_task(self, text: str, session_id: str):
         blob.upload_from_filename(str(tmp_path))
         tmp_path.unlink()  # delete temp file
 
+        # ✅ Mark audio ready
+        firestore.Client().collection("sessions").document(session_id).update({"audio_ready": True})
+
         logger.info(f"[TTS] Uploaded to GCS: {blob.name}")
+
         print(f"[TTS] Uploaded to GCS → {blob.name}")
         print(f"[TTS] Public URL (if public): https://storage.googleapis.com/{bucket_name}/{blob.name}")
 
@@ -149,7 +153,8 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
             "skills": skills,
             "role": role,
             "experience": experience,
-            "history": []  # Store history as a list of objects (not as a JSON string)
+            "history": [],
+            "audio_ready": False # Store history as a list of objects (not as a JSON string)
         }
         doc_ref.set(session)
         logger.info(f"Created Firestore session {session_id} for user {user_id}")
@@ -217,7 +222,7 @@ async def talk(
         
         # Save the updated session back to Firestore
         doc_ref = db.collection("sessions").document(user_id)
-        doc_ref.set(session)
+        doc_ref.update({"audio_ready": False})
 
         # dispatch TTS
         generate_tts_task.delay(answer, session["id"])
@@ -240,22 +245,25 @@ from datetime import timedelta
 
 @app.get("/get_audio/{session_id}")
 async def get_audio(session_id: str):
-    bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
+    # Check Firestore for audio_ready status
+    doc_ref = db.collection("sessions").document(session_id)
+    doc = doc_ref.get()
+    
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Session not found")
 
-    try:
-        blob.reload()  # More reliable than .exists()
-    except Exception as e:
-        logger.warning(f"[GCS] Audio not ready or access issue for session {session_id}: {e}")
-        raise HTTPException(status_code=404, detail="Audio not ready.")
+    session_data = doc.to_dict()
+    if not session_data.get("audio_ready"):
+        raise HTTPException(status_code=404, detail="Audio not ready yet")
 
+    # Generate signed URL for GCS file
+    blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{session_id}.mp3")
     signed_url = blob.generate_signed_url(
         version="v4",
         expiration=timedelta(hours=1),
         method="GET"
     )
 
-    logger.info(f"[GCS] Signed URL generated for session {session_id}")
     return JSONResponse({"audio_url": signed_url})
 
 @app.post("/clear_chat/{user_id}")
