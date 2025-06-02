@@ -40,6 +40,7 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
 # ——— Celery TTS task ———
 celery_app = Celery("main", broker=CELERY_BROKER_URL)
+celery_app.conf.broker_connection_retry_on_startup = True
 VOICE = "en-CA-LiamNeural"
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -211,7 +212,7 @@ async def talk(
         doc_ref.update({"audio_ready": False})
 
         # dispatch TTS
-        generate_tts_task.delay(answer, session["id"])
+        generate_tts_task.delay(answer, user_id, session["id"])
 
         return JSONResponse({
             "response": answer,
