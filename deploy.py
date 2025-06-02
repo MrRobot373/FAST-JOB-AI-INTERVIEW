@@ -78,7 +78,8 @@ def generate_tts_task(self, text: str, session_id: str):
         tmp_path.unlink()  # delete temp file
 
         # ✅ Mark audio ready
-        firestore.Client().collection("sessions").document(session_id).update({"audio_ready": True})
+        db.collection("sessions").document(session_id).update({"audio_ready": True})
+
 
         logger.info(f"[TTS] Uploaded to GCS: {blob.name}")
 
