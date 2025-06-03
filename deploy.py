@@ -220,6 +220,8 @@ async def talk(
         doc_ref = db.collection("sessions").document(session["id"])
         doc_ref.update({"audio_ready": False})
         generate_tts_task.delay(answer, user_id, session["id"])
+        logger.info(f"[TTS] Celery async task triggered: {session_id}")
+
 
 
         return JSONResponse({
