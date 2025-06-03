@@ -41,7 +41,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
 # ——— Celery TTS task ———
-celery_app = Celery("main", broker=CELERY_BROKER_URL)
+celery_app = Celery("deploy", broker=CELERY_BROKER_URL)
 celery_app.conf.broker_connection_retry_on_startup = True
 VOICE = "en-CA-LiamNeural"
 BASE_DIR = Path(__file__).resolve().parent
