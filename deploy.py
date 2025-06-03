@@ -61,37 +61,32 @@ def generate_tts_task(self, text: str, user_id: str, session_id: str):
         t = t.replace("‘", "'").replace("’", "'")
         return re.sub(r'\s+', ' ', t).strip()
 
-    logger.info(f"[TTS] Starting TTS task for user_id={user_id}, session_id={session_id}")
+    logger.info(f"[TTS] Starting TTS task for session_id={session_id}")
     
     cleaned = clean_tts_text(text)
     tmp_path = Path(f"/tmp/response_{session_id}.mp3.tmp")
 
     try:
-        # TTS generation
         asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
-
-        # Upload to GCS
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
         blob.upload_from_filename(str(tmp_path))
         tmp_path.unlink()
 
-        # Update Firestore document using user_id (not session_id)
-        doc_ref = db.collection("sessions").document(user_id)
-        doc = doc_ref.get()
-
-        if doc.exists:
+        doc_ref = db.collection("sessions").document(session_id)
+        if doc_ref.get().exists:
             doc_ref.update({"audio_ready": True})
-            logger.info(f"[TTS] Uploaded to GCS and marked audio_ready for user: {user_id}")
+            logger.info(f"[TTS] Uploaded audio and updated Firestore for session {session_id}")
         else:
-            logger.warning(f"[TTS] No Firestore document found for user_id: {user_id}")
+            logger.warning(f"[TTS] No document found with session_id: {session_id}")
 
     except Exception as e:
-        logger.error(f"[TTS] Error during processing session {session_id}: {e}", exc_info=True)
+        logger.error(f"[TTS] Error for session {session_id}: {e}", exc_info=True)
         try:
             self.retry(exc=e)
         except self.MaxRetriesExceededError:
             logger.error(f"[TTS] Max retries exceeded for session {session_id}")
+
 
 
 # ——— FastAPI setup ———
@@ -128,24 +123,23 @@ Behavior rules:
 chat_sessions = {}
 
 def get_or_create_session(user_id, firstname, skills, role, experience):
-    # Reference the Firestore document for the user's session
-    doc_ref = db.collection("sessions").document(session_id)
-    doc = doc_ref.get()
+    # Search for session by user_id (if needed)
+    sessions = db.collection("sessions").where("user_id", "==", user_id).limit(1).stream()
+    session_doc = next(sessions, None)
 
-    if doc.exists:
-        session = doc.to_dict()
-        # Update session details if they've changed
+    if session_doc:
+        session = session_doc.to_dict()
         session.update({
             "firstname": firstname,
             "skills": skills,
             "role": role,
             "experience": experience
         })
-        # Update session data back to Firestore
+        doc_ref = db.collection("sessions").document(session["id"])
         doc_ref.set(session, merge=True)
-        logger.info(f"Updated Firestore session for user {user_id}")
+        logger.info(f"Updated Firestore session {session['id']} for user {user_id}")
+        return session
     else:
-        # Create a new session document
         session_id = str(uuid.uuid4())
         session = {
             "id": session_id,
@@ -155,13 +149,13 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
             "role": role,
             "experience": experience,
             "history": [],
-            "audio_ready": False # Store history as a list of objects (not as a JSON string)
+            "audio_ready": False
         }
-        session["id"] = session_id  # 🔥 Ensure "id" field is written
+        doc_ref = db.collection("sessions").document(session_id)
         doc_ref.set(session)
         logger.info(f"Created Firestore session {session_id} for user {user_id}")
+        return session
 
-    return session
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -222,12 +216,10 @@ async def talk(
         ])
         session["history"] = chat_history
         
-        # Save the updated session back to Firestore
-        doc_ref = db.collection("sessions").document(user_id)
+        doc_ref = db.collection("sessions").document(session["id"])
         doc_ref.update({"audio_ready": False})
-
-        # dispatch TTS
         generate_tts_task.delay(answer, user_id, session["id"])
+
 
         return JSONResponse({
             "response": answer,
@@ -247,14 +239,14 @@ from datetime import timedelta
 
 @app.get("/get_audio/{session_id}")
 async def get_audio(session_id: str):
-    # Search session by session_id field (not document ID)
-    sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
-    session_doc = next(sessions, None)
+    # Use session_id directly as the Firestore document ID
+    doc_ref = db.collection("sessions").document(session_id)
+    doc = doc_ref.get()
 
-    if not session_doc:
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_data = session_doc.to_dict()
+    session_data = doc.to_dict()
     if not session_data.get("audio_ready"):
         raise HTTPException(status_code=404, detail="Audio not ready yet")
 
@@ -267,29 +259,25 @@ async def get_audio(session_id: str):
     return JSONResponse({"audio_url": signed_url})
 
 
-@app.post("/clear_chat/{user_id}")
-async def clear_chat(user_id: str):
-    # Fetch session from Firestore
-    doc_ref = db.collection("sessions").document(user_id)
+@app.post("/clear_chat/{session_id}")
+async def clear_chat(session_id: str):
+    doc_ref = db.collection("sessions").document(session_id)
     doc = doc_ref.get()
-    
     if doc.exists:
-        session = doc.to_dict()
-        session["history"] = []  # Clear the chat history
-        doc_ref.set(session)  # Save the cleared history back to Firestore
+        doc_ref.update({"history": []})
         return {"message": "Chat history cleared"}
     else:
         raise HTTPException(status_code=404, detail="Session not found")
 
+
 @app.post("/final_report")
-async def final_report(user_id: str = Form(...)):
-    # Fetch the session from Firestore
-    doc_ref = db.collection("sessions").document(user_id)
+async def final_report(session_id: str = Form(...)):
+    doc_ref = db.collection("sessions").document(session_id)
     doc = doc_ref.get()
-    
+
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     session = doc.to_dict()
     chat_history = session.get("history", [])
 
