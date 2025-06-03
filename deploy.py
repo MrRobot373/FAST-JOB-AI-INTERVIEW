@@ -7,7 +7,7 @@ import asyncio
 import re
 
 import edge_tts
-from fastapi import FastAPI, Form, Depends, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +30,8 @@ from pathlib import Path
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
@@ -53,7 +55,7 @@ storage_client = storage.Client()
 bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket name
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
-def _generate_tts_task(self, text: str, user_id: str, session_id: str):
+def generate_tts_task(self, text: str, user_id: str, session_id: str):
     def clean_tts_text(t: str) -> str:
         t = t.replace("“", '"').replace("”", '"')
         t = t.replace("‘", "'").replace("’", "'")
@@ -63,13 +65,16 @@ def _generate_tts_task(self, text: str, user_id: str, session_id: str):
     tmp_path = Path(f"/tmp/response_{session_id}.mp3.tmp")
 
     try:
+        # TTS generation
         asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
+
+        # Upload to GCS
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
         blob.upload_from_filename(str(tmp_path))
         tmp_path.unlink()
 
-        # ✅ Fix: update audio_ready by querying the session using session_id
+        # Update Firestore document where id == session_id
         sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
         session_doc = next(sessions, None)
 
@@ -81,15 +86,11 @@ def _generate_tts_task(self, text: str, user_id: str, session_id: str):
             logger.warning(f"[TTS] Session with id {session_id} not found in Firestore.")
 
     except Exception as e:
-        logger.error(f"[TTS] error for session {session_id}: {e}", exc_info=True)
+        logger.error(f"[TTS] Error during processing session {session_id}: {e}", exc_info=True)
         try:
             self.retry(exc=e)
         except self.MaxRetriesExceededError:
             logger.error(f"[TTS] Max retries exceeded for session {session_id}")
-
-# bind it as a task correctly
-generate_tts_task = celery_app.task(bind=True, max_retries=3, default_retry_delay=300)(_generate_tts_task)
-
 
 # ——— FastAPI setup ———
 app = FastAPI(title="AI Interview Bot")
