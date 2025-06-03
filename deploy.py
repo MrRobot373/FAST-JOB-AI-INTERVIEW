@@ -129,7 +129,7 @@ chat_sessions = {}
 
 def get_or_create_session(user_id, firstname, skills, role, experience):
     # Reference the Firestore document for the user's session
-    doc_ref = db.collection("sessions").document(user_id)
+    doc_ref = db.collection("sessions").document(session_id)
     doc = doc_ref.get()
 
     if doc.exists:
