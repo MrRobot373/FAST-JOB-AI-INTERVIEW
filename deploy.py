@@ -222,7 +222,10 @@ async def talk(
         
         # Save the updated session back to Firestore
         doc_ref = db.collection("sessions").document(user_id)
-        doc_ref.update({"audio_ready": False})
+        doc_ref.update({
+            "history": chat_history,
+            "audio_ready": False
+            })
 
         # dispatch TTS
         generate_tts_task.delay(answer, user_id, session["id"])
