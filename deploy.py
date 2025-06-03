@@ -56,6 +56,7 @@ bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
 def generate_tts_task(self, text: str, user_id: str, session_id: str):
+    logger.info(f"[TTS] Called generate_tts_task with user_id={user_id}, session_id={session_id}")
     def clean_tts_text(t: str) -> str:
         t = t.replace("“", '"').replace("”", '"')
         t = t.replace("‘", "'").replace("’", "'")
