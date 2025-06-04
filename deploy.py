@@ -299,7 +299,7 @@ async def final_report(user_id: str = Form(...)):
         f"Generate a final interview report for {session['firstname']} "
         f"applying for {session['role']} with {session['experience']} years experience "
         f"and skills in {session['skills']}.\n\n"
-        "Include: Overall Assessment, Strengths, Areas for Improvement, and Recommendation.\n\n"
+        "Include: Overall Assessment, Strengths, Areas for Improvement, and Recommendation.DO NOT Include:DATE & Unknown details \n\n"
     )
     
     # Add chat history to the prompt
