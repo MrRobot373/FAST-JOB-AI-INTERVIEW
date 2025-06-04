@@ -70,21 +70,20 @@ def generate_tts_task(self, text: str, user_id: str, session_id: str):
         # Generate TTS
         asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
 
-        # Upload to GCS
+        # Upload to GCS with correct audio_id
         bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(f"tts_audio/response_{audio_id}.mp3")
+        blob = bucket.blob(f"tts_audio/response_{audio_id}.mp3")  # ✅ uses full audio_id
         blob.upload_from_filename(str(tmp_path))
         tmp_path.unlink()
 
-        # Update Firestore with audio_id and flag
+        # Update Firestore with audio_id and audio_ready flag
         sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
         session_doc = next(sessions, None)
 
         if session_doc:
             doc_ref = db.collection("sessions").document(session_doc.id)
             doc_ref.update({
-                "audio_ready": True,
-                "last_audio_id": audio_id  # ✅ save latest audio file reference
+                "last_audio_id": audio_id  # ✅ this must match uploaded file
             })
             logger.info(f"[TTS] Uploaded and marked ready: {audio_id}")
         else:
@@ -155,8 +154,7 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
             "skills": skills,
             "role": role,
             "experience": experience,
-            "history": [],
-            "audio_ready": False # Store history as a list of objects (not as a JSON string)
+            "history": []
         }
         session["id"] = session_id  # 🔥 Ensure "id" field is written
         doc_ref.set(session)
@@ -226,7 +224,6 @@ async def talk(
         doc_ref = db.collection("sessions").document(user_id)
         doc_ref.update({
             "history": chat_history,
-            "audio_ready": False
             })
 
         # dispatch TTS
@@ -258,8 +255,9 @@ async def get_audio(user_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     session_data = doc.to_dict()
-    if not session_data.get("audio_ready") or not session_data.get("last_audio_id"):
+    if not session_data.get("last_audio_id"):
         raise HTTPException(status_code=404, detail="Audio not ready yet")
+
 
     audio_id = session_data["last_audio_id"]
     blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{audio_id}.mp3")
