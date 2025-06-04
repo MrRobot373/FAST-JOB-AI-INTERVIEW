@@ -249,21 +249,19 @@ async def talk(
 
 from datetime import timedelta
 
-@app.get("/get_audio/{session_id}")
-async def get_audio(session_id: str):
-    # Search session by session_id field (not document ID)
-    sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
-    session_doc = next(sessions, None)
+@app.get("/get_audio/{user_id}")
+async def get_audio(user_id: str):
+    doc_ref = db.collection("sessions").document(user_id)
+    doc = doc_ref.get()
 
-    if not session_doc:
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_data = session_doc.to_dict()
-
-    audio_id = session_data.get("last_audio_id")
-    if not session_data.get("audio_ready") or not audio_id:
+    session_data = doc.to_dict()
+    if not session_data.get("audio_ready") or not session_data.get("last_audio_id"):
         raise HTTPException(status_code=404, detail="Audio not ready yet")
 
+    audio_id = session_data["last_audio_id"]
     blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{audio_id}.mp3")
     signed_url = blob.generate_signed_url(
         version="v4",
