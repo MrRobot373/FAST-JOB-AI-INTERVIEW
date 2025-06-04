@@ -259,15 +259,12 @@ async def get_audio(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     session_data = session_doc.to_dict()
-    if not session_data.get("audio_ready"):
-        raise HTTPException(status_code=404, detail="Audio not ready yet")
 
     audio_id = session_data.get("last_audio_id")
     if not session_data.get("audio_ready") or not audio_id:
         raise HTTPException(status_code=404, detail="Audio not ready yet")
 
     blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{audio_id}.mp3")
-
     signed_url = blob.generate_signed_url(
         version="v4",
         expiration=timedelta(hours=1),
