@@ -46,7 +46,6 @@ celery_app.conf.broker_connection_retry_on_startup = True
 VOICE = "en-CA-LiamNeural"
 BASE_DIR = Path(__file__).resolve().parent
 
-
 from google.cloud import storage
 from datetime import timedelta
 
@@ -56,37 +55,43 @@ bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
 def generate_tts_task(self, text: str, user_id: str, session_id: str):
+    import time  # ensure this is at the top of your file
+
     def clean_tts_text(t: str) -> str:
         t = t.replace("“", '"').replace("”", '"')
         t = t.replace("‘", "'").replace("’", "'")
         return re.sub(r'\s+', ' ', t).strip()
 
-    cleaned = clean_tts_text(text)
-    tmp_path = Path(f"/tmp/response_{session_id}.mp3.tmp")
-
     try:
-        # TTS generation
+        cleaned = clean_tts_text(text)
+        audio_id = f"{session_id}_{int(time.time())}"  # ✅ unique ID per audio
+        tmp_path = Path(f"/tmp/response_{audio_id}.mp3.tmp")
+
+        # Generate TTS
         asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
 
         # Upload to GCS
         bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(f"tts_audio/response_{session_id}.mp3")
+        blob = bucket.blob(f"tts_audio/response_{audio_id}.mp3")
         blob.upload_from_filename(str(tmp_path))
         tmp_path.unlink()
 
-        # Update Firestore document where id == session_id
+        # Update Firestore with audio_id and flag
         sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
         session_doc = next(sessions, None)
 
         if session_doc:
             doc_ref = db.collection("sessions").document(session_doc.id)
-            doc_ref.update({"audio_ready": True})
-            logger.info(f"[TTS] Uploaded to GCS and marked audio_ready for: {session_id}")
+            doc_ref.update({
+                "audio_ready": True,
+                "last_audio_id": audio_id  # ✅ save latest audio file reference
+            })
+            logger.info(f"[TTS] Uploaded and marked ready: {audio_id}")
         else:
-            logger.warning(f"[TTS] Session with id {session_id} not found in Firestore.")
+            logger.warning(f"[TTS] Session with id {session_id} not found.")
 
     except Exception as e:
-        logger.error(f"[TTS] Error during processing session {session_id}: {e}", exc_info=True)
+        logger.error(f"[TTS] Error during session {session_id}: {e}", exc_info=True)
         try:
             self.retry(exc=e)
         except self.MaxRetriesExceededError:
@@ -121,8 +126,6 @@ Behavior rules:
 - Do NOT say "How can I help you?" or include asterisks.
 """.strip()
 
-# In-memory store for chat sessions (for demonstration purposes without a DB)
-# In a real application, you'd integrate with a persistent store (e.g., another microservice's DB)
 chat_sessions = {}
 
 def get_or_create_session(user_id, firstname, skills, role, experience):
@@ -160,7 +163,6 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
         logger.info(f"Created Firestore session {session_id} for user {user_id}")
 
     return session
-
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -235,6 +237,7 @@ async def talk(
             "tts_status": "processing",
             "session_id": session["id"],
             "full_history": chat_history,
+            "audio_hint": "Wait a few seconds before calling /get_audio/{session_id}",
         })
 
     except GoogleAPIError as e:
@@ -259,14 +262,18 @@ async def get_audio(session_id: str):
     if not session_data.get("audio_ready"):
         raise HTTPException(status_code=404, detail="Audio not ready yet")
 
-    blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{session_id}.mp3")
+    audio_id = session_data.get("last_audio_id")
+    if not session_data.get("audio_ready") or not audio_id:
+        raise HTTPException(status_code=404, detail="Audio not ready yet")
+
+    blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{audio_id}.mp3")
+
     signed_url = blob.generate_signed_url(
         version="v4",
         expiration=timedelta(hours=1),
         method="GET"
     )
     return JSONResponse({"audio_url": signed_url})
-
 
 @app.post("/clear_chat/{user_id}")
 async def clear_chat(user_id: str):
