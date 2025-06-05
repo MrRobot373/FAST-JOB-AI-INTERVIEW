@@ -231,10 +231,8 @@ async def talk(
 
         return JSONResponse({
             "response": answer,
-            "tts_status": "processing",
             "session_id": session["id"],
-            "full_history": chat_history,
-            "audio_hint": "Wait a few seconds before calling /get_audio/{session_id}",
+            "full_history": chat_history
         })
 
     except GoogleAPIError as e:
