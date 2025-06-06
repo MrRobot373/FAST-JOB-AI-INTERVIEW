@@ -6,14 +6,14 @@ import logging
 import asyncio
 import re
 
-import edge_tts
+#import edge_tts
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from celery import Celery
+#from celery import Celery
 from dotenv import load_dotenv
 
 from google import genai
@@ -38,63 +38,63 @@ if not GEMINI_API_KEY:
     logger.critical("GEMINI_API_KEY missing in .env!") and exit(1)
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+# CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 
-# ——— Celery TTS task ———
-celery_app = Celery("main", broker=CELERY_BROKER_URL)
-celery_app.conf.broker_connection_retry_on_startup = True
-VOICE = "en-CA-LiamNeural"
-BASE_DIR = Path(__file__).resolve().parent
+# # ——— Celery TTS task ———
+# celery_app = Celery("main", broker=CELERY_BROKER_URL)
+# celery_app.conf.broker_connection_retry_on_startup = True
+# VOICE = "en-CA-LiamNeural"
+# BASE_DIR = Path(__file__).resolve().parent
 
-from google.cloud import storage
-from datetime import timedelta
+# from google.cloud import storage
+# from datetime import timedelta
 
 # Initialize GCS client
-storage_client = storage.Client()
-bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket name
+# storage_client = storage.Client()
+# bucket_name = "ai-interview-audio-nihar10100"  # Replace with your actual bucket name
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
-def generate_tts_task(self, text: str, user_id: str, session_id: str):
-    import time  # ensure this is at the top of your file
+# @celery_app.task(bind=True, max_retries=3, default_retry_delay=300)
+# def generate_tts_task(self, text: str, user_id: str, session_id: str):
+#     import time  # ensure this is at the top of your file
 
-    def clean_tts_text(t: str) -> str:
-        t = t.replace("“", '"').replace("”", '"')
-        t = t.replace("‘", "'").replace("’", "'")
-        return re.sub(r'\s+', ' ', t).strip()
+#     def clean_tts_text(t: str) -> str:
+#         t = t.replace("“", '"').replace("”", '"')
+#         t = t.replace("‘", "'").replace("’", "'")
+#         return re.sub(r'\s+', ' ', t).strip()
 
-    try:
-        cleaned = clean_tts_text(text)
-        audio_id = f"{session_id}_{int(time.time())}"  # ✅ unique ID per audio
-        tmp_path = Path(f"/tmp/response_{audio_id}.mp3.tmp")
+#     try:
+#         cleaned = clean_tts_text(text)
+#         audio_id = f"{session_id}_{int(time.time())}"  # ✅ unique ID per audio
+#         tmp_path = Path(f"/tmp/response_{audio_id}.mp3.tmp")
 
-        # Generate TTS
-        asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
+#         # Generate TTS
+#         asyncio.run(edge_tts.Communicate(cleaned, VOICE).save(str(tmp_path)))
 
-        # Upload to GCS with correct audio_id
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(f"tts_audio/response_{audio_id}.mp3")  # ✅ uses full audio_id
-        blob.upload_from_filename(str(tmp_path))
-        tmp_path.unlink()
+#         # Upload to GCS with correct audio_id
+#         bucket = storage_client.bucket(bucket_name)
+#         blob = bucket.blob(f"tts_audio/response_{audio_id}.mp3")  # ✅ uses full audio_id
+#         blob.upload_from_filename(str(tmp_path))
+#         tmp_path.unlink()
 
-        # Update Firestore with audio_id and audio_ready flag
-        sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
-        session_doc = next(sessions, None)
+#         # Update Firestore with audio_id and audio_ready flag
+#         sessions = db.collection("sessions").where("id", "==", session_id).limit(1).stream()
+#         session_doc = next(sessions, None)
 
-        if session_doc:
-            doc_ref = db.collection("sessions").document(session_doc.id)
-            doc_ref.update({
-                "last_audio_id": audio_id  # ✅ this must match uploaded file
-            })
-            logger.info(f"[TTS] Uploaded and marked ready: {audio_id}")
-        else:
-            logger.warning(f"[TTS] Session with id {session_id} not found.")
+#         if session_doc:
+#             doc_ref = db.collection("sessions").document(session_doc.id)
+#             doc_ref.update({
+#                 "last_audio_id": audio_id  # ✅ this must match uploaded file
+#             })
+#             logger.info(f"[TTS] Uploaded and marked ready: {audio_id}")
+#         else:
+#             logger.warning(f"[TTS] Session with id {session_id} not found.")
 
-    except Exception as e:
-        logger.error(f"[TTS] Error during session {session_id}: {e}", exc_info=True)
-        try:
-            self.retry(exc=e)
-        except self.MaxRetriesExceededError:
-            logger.error(f"[TTS] Max retries exceeded for session {session_id}")
+#     except Exception as e:
+#         logger.error(f"[TTS] Error during session {session_id}: {e}", exc_info=True)
+#         try:
+#             self.retry(exc=e)
+#         except self.MaxRetriesExceededError:
+#             logger.error(f"[TTS] Max retries exceeded for session {session_id}")
 
 # ——— FastAPI setup ———
 app = FastAPI(title="AI Interview Bot")
@@ -227,7 +227,7 @@ async def talk(
             })
 
         # dispatch TTS
-        generate_tts_task.delay(answer, user_id, session["id"])
+        #generate_tts_task.delay(answer, user_id, session["id"])
 
         return JSONResponse({
             "response": answer,
@@ -244,27 +244,27 @@ async def talk(
 
 from datetime import timedelta
 
-@app.get("/get_audio/{user_id}")
-async def get_audio(user_id: str):
-    doc_ref = db.collection("sessions").document(user_id)
-    doc = doc_ref.get()
+# @app.get("/get_audio/{user_id}")
+# async def get_audio(user_id: str):
+#     doc_ref = db.collection("sessions").document(user_id)
+#     doc = doc_ref.get()
 
-    if not doc.exists:
-        raise HTTPException(status_code=404, detail="Session not found")
+#     if not doc.exists:
+#         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_data = doc.to_dict()
-    if not session_data.get("last_audio_id"):
-        raise HTTPException(status_code=404, detail="Audio not ready yet")
+#     session_data = doc.to_dict()
+#     if not session_data.get("last_audio_id"):
+#         raise HTTPException(status_code=404, detail="Audio not ready yet")
 
 
-    audio_id = session_data["last_audio_id"]
-    blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{audio_id}.mp3")
-    signed_url = blob.generate_signed_url(
-        version="v4",
-        expiration=timedelta(hours=1),
-        method="GET"
-    )
-    return JSONResponse({"audio_url": signed_url})
+#     audio_id = session_data["last_audio_id"]
+#     blob = storage_client.bucket(bucket_name).blob(f"tts_audio/response_{audio_id}.mp3")
+#     signed_url = blob.generate_signed_url(
+#         version="v4",
+#         expiration=timedelta(hours=1),
+#         method="GET"
+#     )
+#     return JSONResponse({"audio_url": signed_url})
 
 @app.post("/clear_chat/{user_id}")
 async def clear_chat(user_id: str):
