@@ -282,6 +282,7 @@ async def clear_chat(user_id: str):
 
 @app.post("/final_report")
 async def final_report(user_id: str = Form(...)):
+    # Fetch the session from Firestore
     doc_ref = db.collection("sessions").document(user_id)
     doc = doc_ref.get()
     
@@ -291,10 +292,10 @@ async def final_report(user_id: str = Form(...)):
     session = doc.to_dict()
     chat_history = session.get("history", [])
 
-    # Build system prompt
-    intro_instruction = (
+    # Create prompt for the report generation
+    prompt = (
         f"You are a professional technical interviewer.\n\n"
-        f"Based on the following conversation history, generate a detailed, unbias final interview report in 600 words. "
+        f"Based on the following conversation history, generate a detailed, Unbiased final interview report in 600 words "
 
         "The report must include:\n"
         "- Overall Assessment\n"
@@ -308,36 +309,22 @@ async def final_report(user_id: str = Form(...)):
         
         "Do not include date, time, or placeholder values like 'N/A'. Focus on clarity, conciseness, and professionalism."
     )
-
-    # Build conversation content for Gemini
-    contents = [types.Content(role="user", parts=[types.Part.from_text(intro_instruction)])]
-
+    
+    # Add chat history to the prompt
     for e in chat_history:
-        role = e["role"]
-        contents.append(types.Content(role=role, parts=[types.Part.from_text(e["text"])]))
-
-    # Final instruction
-    contents.append(types.Content(
-        role="user",
-        parts=[types.Part.from_text("Now generate the interview report as instructed.")]
-    ))
+        prompt += f"{e['role'].capitalize()}: {e['text']}\n"
 
     cfg = types.GenerateContentConfig(
         response_mime_type="text/plain",
-        temperature=0.2,
+        temperature=0.0,
         top_p=1.0
     )
-
-    try:
-        resp = client.models.generate_content(
-            model="gemini-2.0-flash-lite",
-            contents=contents,
-            config=cfg
-        )
-        report = resp.text.strip() or "Could not generate report."
-        return JSONResponse({"report": report})
+    resp = client.models.generate_content(
+        model="gemini-2.0-flash-lite",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+        config=cfg
+    )
     
-    except Exception as e:
-        logger.error("Report generation failed", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to generate interview report.")
+    report = resp.text.strip() or "Could not generate report."
+    return JSONResponse({"report": report})
 
