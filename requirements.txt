@@ -9,3 +9,5 @@ celery==5.3.6
 edge-tts==6.1.10
 google-generativeai==0.5.4
 httpx
+sqlalchemy
+psycopg2-binary
