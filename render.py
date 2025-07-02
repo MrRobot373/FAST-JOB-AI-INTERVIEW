@@ -103,6 +103,10 @@ def get_or_create_session(user_id, firstname, skills, role, experience):
     return session_obj
 
 # Routes
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+    
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
