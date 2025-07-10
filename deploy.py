@@ -295,7 +295,7 @@ async def final_report(user_id: str = Form(...)):
     # Create prompt for the report generation
     prompt = (
 f"""
-You are a technical interviewer evaluating a candidate for the role of Power Electronics Design Engineer.
+You are a technical interviewer evaluating a candidate .
 
 Based on the conversation history provided, write a **detailed and structured final evaluation report**. Your tone should be **professional, fair, and constructive**, suitable for use by a hiring manager.
 
