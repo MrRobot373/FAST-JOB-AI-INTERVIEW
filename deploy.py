@@ -294,20 +294,51 @@ async def final_report(user_id: str = Form(...)):
 
     # Create prompt for the report generation
     prompt = (
-        f"You are a professional technical interviewer.\n\n"
-        f"Based on the following conversation history, generate a detailed, Unbiased final interview report in 600 words "
+f"""
+You are a technical interviewer evaluating a candidate for the role of Power Electronics Design Engineer.
 
-        "The report must include:\n"
-        "- Overall Assessment\n"
-        "- Strengths\n"
-        "- Areas for Improvement\n"
-        "- Final Recommendation\n\n"
+Based on the conversation history provided, write a **detailed and structured final evaluation report**. Your tone should be **professional, fair, and constructive**, suitable for use by a hiring manager.
 
-        "If the interview appears incomplete (e.g., only a few questions answered, poor detail, or short session), "
-        "clearly mention this in the report under a section titled 'Interview Incompleteness Notice'. "
-        "Avoid assuming unknown qualifications. Do not fabricate answers or assessments.\n\n"
-        
-        "Do not include date, time, or placeholder values like 'N/A'. Focus on clarity, conciseness, and professionalism."
+Follow this format strictly:
+
+---
+
+**Final Evaluation of Candidate - [Role]**
+
+**Overall Impression:**
+Summarize the candidate's overall performance, focusing on their strengths, communication, and readiness for the role.
+
+**Detailed Analysis by Question:**
+For each major interview question or topic discussed, provide:
+- A one-line topic title (e.g., “Challenging Project”)
+- A short paragraph (2–3 sentences) evaluating their response
+- A rating in the format: **(Marks: X/10)**
+
+Use your judgment to estimate questions based on the dialogue — include 8–12 topics total.
+
+**Strengths:**
+- List 3–5 key strengths based on the conversation.
+
+**Weaknesses:**
+- List 3–5 key areas where the candidate can improve, focusing on clarity, depth, or approach.
+
+**Suitability for the Role:**
+State whether the candidate is suitable for the role. Use cautious, professional language (e.g., “suitable with guidance”, “strong potential”, or “may need further development”).
+
+**Recommendations:**
+Give practical advice the candidate should follow to grow professionally and succeed in this role.
+
+---
+
+Important Instructions:
+- Base your evaluation only on what the candidate said — do not assume or fabricate skills.
+- Be neutral in tone: supportive but honest.
+- Do not include or mention date, time, or interview length.
+- Format clearly with section headers as shown above.
+
+Now, write the full evaluation report using the following interview conversation:
+"""
+
     )
     
     # Add chat history to the prompt
