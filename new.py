@@ -191,14 +191,14 @@ async def get_or_create_session(user_id: str, firstname: str, skills: str, role:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
-    logger.info("Starting AI Interview Bot application - UNLIMITED CONCURRENT USERS")
+    logger.info("Starting AI Interview Bot")
     yield
     logger.info("Shutting down AI Interview Bot application")
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="AI Interview Bot - Unlimited Users",
-    description="Scalable AI-powered interview bot with unlimited concurrent users",
+    title="AI Interview FastJob AI",
+    description="AI-powered interview bot",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -262,7 +262,7 @@ async def talk(
     experience: str = Form(...),
     message: str = Form(...),
 ):
-    """Handle interview conversation - UNLIMITED CONCURRENT USERS"""
+    """Handle interview conversation - MAX CONCURRENT USERS"""
     start_time = time.time()
     
     try:
