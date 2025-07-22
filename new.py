@@ -5,7 +5,7 @@ import uuid
 import json
 import time
 from typing import Dict, List, Optional, Any
-from contextual import asynccontextmanager
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 # FastAPI imports
