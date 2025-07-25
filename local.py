@@ -1,3 +1,4 @@
+# for local with mysql database (no gcp connect)
 import os
 import uuid
 import json
