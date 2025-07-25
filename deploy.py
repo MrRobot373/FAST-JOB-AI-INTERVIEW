@@ -1,3 +1,4 @@
+# Final code : GCP and production ready (BEFORE DEVOPS) 
 import os
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "gcs-key.json"
 import uuid
